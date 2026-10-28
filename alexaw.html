@@ -1,0 +1,1037 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AeroClean Indonesia - Pemantau ISPU & Analisis Kurva Normal</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        ispu: {
+                            baik: '#22c55e',      // Hijau (0 - 50)
+                            sedang: '#3b82f6',    // Biru (51 - 100)
+                            tidakSehat: '#f97316',// Jingga/Oranye (101 - 200)
+                            sangatTidakSehat: '#ef4444', // Merah (201 - 300)
+                            berbahaya: '#a855f7'  // Hitam/Ungu Kebitaman (> 300)
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0f172a;
+            color: #f8fafc;
+        }
+
+        @keyframes scan {
+            0% { transform: translateY(-100%); opacity: 0.3; }
+            50% { opacity: 0.8; }
+            100% { transform: translateY(100%); opacity: 0.3; }
+        }
+
+        .scan-line {
+            animation: scan 2.2s infinite ease-in-out;
+        }
+
+        ::-webkit-scrollbar {
+            width: 5px;
+            height: 5px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #1e293b;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #475569;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #10b981;
+        }
+        
+        .glass-panel {
+            background: rgba(30, 41, 59, 0.85);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .glass-panel-light {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+    </style>
+</head>
+<body class="antialiased min-h-screen flex flex-col pb-20 md:pb-6">
+
+    <!-- Header / Navbar Desktop & Mobile Header -->
+    <header class="bg-slate-900/90 backdrop-blur-md border-b border-slate-800 sticky top-0 z-40">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center text-slate-950 shadow-lg shadow-emerald-500/20 font-black">
+                    <i class="fa-solid fa-wind text-xl"></i>
+                </div>
+                <div>
+                    <h1 class="font-extrabold text-base sm:text-lg text-white leading-none flex items-center gap-2">
+                        AeroClean ID 
+                        <span class="text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full font-bold">Standar ISPU Permen LHK P.14/2020</span>
+                    </h1>
+                    <span class="text-[11px] text-slate-400 font-medium">Pemantau Udara Indonesia & Distribusi Normal</span>
+                </div>
+            </div>
+
+            <!-- Header Controls (Desktop) -->
+            <div class="hidden sm:flex items-center space-x-3">
+                <button onclick="exportDataCSV()" class="bg-slate-800 hover:bg-slate-700 text-xs text-emerald-400 border border-emerald-500/30 font-semibold px-3 py-2 rounded-xl flex items-center gap-1.5 transition">
+                    <i class="fa-solid fa-file-csv"></i>
+                    <span>Unduh CSV</span>
+                </button>
+                <button onclick="exportDataJSON()" class="bg-slate-800 hover:bg-slate-700 text-xs text-teal-400 border border-teal-500/30 font-semibold px-3 py-2 rounded-xl flex items-center gap-1.5 transition">
+                    <i class="fa-solid fa-file-code"></i>
+                    <span>Unduh JSON</span>
+                </button>
+                <select id="presetSelect" onchange="applyEnvironmentPreset(this.value)" class="bg-slate-800 text-slate-200 text-xs font-semibold rounded-xl px-3 py-2 border border-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                    <option value="normal" selected>🌐 Realistis Wilayah</option>
+                    <option value="clean">🌿 Bersih (Hutan/Pegunungan)</option>
+                    <option value="urban">🏙️ Perkotaan Padat</option>
+                    <option value="industrial">🏭 Kawasan Industri</option>
+                    <option value="haze">🔥 Kebakaran Hutan / Karhutla</option>
+                </select>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="flex-grow max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-5">
+
+        <!-- Location & Time-Range Filter Panel -->
+        <div class="glass-panel rounded-2xl p-3.5 sm:p-5 shadow-xl space-y-3">
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                
+                <!-- Province, City & Day Count Selection Dropdowns -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 w-full">
+                    
+                    <!-- Select Province -->
+                    <div>
+                        <label class="block text-[11px] font-semibold text-slate-400 mb-1">
+                            <i class="fa-solid fa-map-location-dot text-emerald-400 mr-1"></i> Provinsi (38 Wilayah)
+                        </label>
+                        <select id="provinceSelect" onchange="onProvinceChange(this.value)" class="w-full bg-slate-900 border border-slate-700 text-white text-xs font-semibold rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                            <!-- Populated JS -->
+                        </select>
+                    </div>
+
+                    <!-- Select City -->
+                    <div>
+                        <label class="block text-[11px] font-semibold text-slate-400 mb-1">
+                            <i class="fa-solid fa-city text-emerald-400 mr-1"></i> Kota / Kabupaten
+                        </label>
+                        <select id="citySelect" onchange="onCityChange(this.value)" class="w-full bg-slate-900 border border-slate-700 text-white text-xs font-semibold rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                            <!-- Populated JS -->
+                        </select>
+                    </div>
+
+                    <!-- Select Days Range -->
+                    <div>
+                        <label class="block text-[11px] font-semibold text-slate-400 mb-1">
+                            <i class="fa-solid fa-calendar-days text-emerald-400 mr-1"></i> Rentang Hari Data
+                        </label>
+                        <select id="dayRangeSelect" onchange="onDayRangeChange(this.value)" class="w-full bg-slate-900 border border-slate-700 text-white text-xs font-semibold rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                            <option value="20" selected>20 Hari Terakhir</option>
+                            <option value="30">30 Hari Terakhir</option>
+                            <option value="60">60 Hari Terakhir</option>
+                            <option value="90">90 Hari Terakhir</option>
+                            <option value="180">180 Hari (6 Bulan)</option>
+                            <option value="365">365 Hari (1 Tahun)</option>
+                            <option value="custom">Custom (Atur Hari)</option>
+                        </select>
+                    </div>
+
+                    <!-- Fast Search Bar -->
+                    <div>
+                        <label class="block text-[11px] font-semibold text-slate-400 mb-1">
+                            <i class="fa-solid fa-magnifying-glass text-emerald-400 mr-1"></i> Cari Cepat Kota
+                        </label>
+                        <div class="relative">
+                            <input type="text" id="quickSearchInput" onkeyup="filterCitySearch(this.value)" placeholder="Cari kota (ex: IKN Nusantara, Malang)..." class="w-full bg-slate-900 border border-slate-700 text-white text-xs font-medium rounded-xl pl-3 pr-8 py-2.5 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                            <i class="fa-solid fa-search absolute right-3 top-3 text-slate-500 text-xs"></i>
+                            
+                            <!-- Search Result Popup -->
+                            <div id="searchResults" class="hidden absolute left-0 right-0 top-12 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl z-50 max-h-52 overflow-y-auto"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- GPS & Scan Buttons -->
+                <div class="flex items-center space-x-2 shrink-0 pt-1 md:pt-0">
+                    <button onclick="detectGPSLocation()" class="flex-1 md:flex-none bg-slate-800 hover:bg-slate-700 text-slate-200 px-3.5 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center space-x-1.5 border border-slate-700 transition active:scale-95">
+                        <i class="fa-solid fa-crosshairs text-emerald-400 text-sm"></i>
+                        <span>GPS Auto</span>
+                    </button>
+
+                    <button onclick="triggerScan()" id="scanBtn" class="flex-1 md:flex-none bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-slate-950 font-bold px-4 py-2.5 rounded-xl text-xs sm:text-sm shadow-lg shadow-emerald-500/20 flex items-center justify-center space-x-2 transition active:scale-95">
+                        <i class="fa-solid fa-rotate-right" id="scanIcon"></i>
+                        <span>Pindai Udara</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Scanning Overlay Modal -->
+        <div id="scanOverlay" class="hidden fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
+            <div class="glass-panel p-6 sm:p-8 rounded-3xl max-w-sm w-full text-center space-y-5 border border-emerald-500/30 relative overflow-hidden">
+                <div class="absolute inset-0 scan-line bg-gradient-to-b from-transparent via-emerald-500/20 to-transparent pointer-events-none"></div>
+                <div class="w-16 h-16 bg-emerald-500/20 text-emerald-400 rounded-full flex items-center justify-center mx-auto text-2xl animate-spin">
+                    <i class="fa-solid fa-compact-disc"></i>
+                </div>
+                <div>
+                    <h3 class="text-lg font-bold text-white">Memindai Udara Real-Time</h3>
+                    <p id="scanLocationText" class="text-xs text-slate-400 mt-1">Mengambil data stasiun pemantau ISPU KLHK...</p>
+                </div>
+                <div class="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+                    <div id="scanProgressBar" class="bg-emerald-500 h-full w-0 transition-all duration-300"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Dashboard Metrics Display Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+            
+            <!-- Real-Time Air Quality Score Widget -->
+            <div id="aqiCard" class="glass-panel rounded-2xl p-5 sm:p-6 flex flex-col justify-between relative overflow-hidden transition-all duration-500">
+                <div class="flex justify-between items-start">
+                    <div>
+                        <div class="flex items-center space-x-2">
+                            <span id="statusDot" class="inline-block w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping"></span>
+                            <span id="currentCityLabel" class="text-xs font-bold text-slate-300 tracking-wider uppercase">JAKARTA PUSAT</span>
+                        </div>
+                        <h2 class="text-xl sm:text-2xl font-black text-white mt-1" id="aqiStatusText">SEDANG</h2>
+                    </div>
+                    <span id="aqiBadge" class="px-3 py-1 text-xs font-extrabold rounded-lg bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                        ISPU 75
+                    </span>
+                </div>
+
+                <div class="my-6 flex items-baseline justify-center space-x-2">
+                    <span id="aqiValueDisplay" class="text-6xl sm:text-7xl font-black text-white tracking-tight">75</span>
+                    <span class="text-slate-400 font-semibold text-sm">ISPU</span>
+                </div>
+
+                <div class="space-y-2">
+                    <div class="flex justify-between text-xs font-medium">
+                        <span class="text-slate-400">Skala Mutu Udara KLHK (0 - 500)</span>
+                        <span id="aqiPercentageText" class="text-emerald-400 font-bold">Kondisi Baik</span>
+                    </div>
+                    <div class="w-full bg-slate-800 h-3 rounded-full overflow-hidden p-0.5 border border-slate-700">
+                        <div id="aqiProgressBar" class="h-full bg-blue-500 rounded-full transition-all duration-700" style="width: 25%;"></div>
+                    </div>
+                </div>
+
+                <div class="mt-4 pt-3 border-t border-slate-800 text-[11px] text-slate-400 flex items-center justify-between">
+                    <span><i class="fa-solid fa-clock mr-1"></i> Diperbarui: <strong id="lastUpdatedText" class="text-slate-200">Hari ini</strong></span>
+                    <span><i class="fa-solid fa-shield-virus mr-1"></i> Standar: <strong class="text-emerald-400">Permen LHK P.14/2020</strong></span>
+                </div>
+            </div>
+
+            <!-- Detailed Pollutant Breakdown Grid -->
+            <div class="glass-panel rounded-2xl p-5 sm:p-6 lg:col-span-2 space-y-4">
+                <div class="flex items-center justify-between">
+                    <h3 class="font-bold text-white text-sm sm:text-base flex items-center gap-2">
+                        <i class="fa-solid fa-chart-simple text-emerald-400"></i>
+                        Konsentrasi Parameter Polutan Utama
+                    </h3>
+                    <span class="text-[11px] text-slate-400 bg-slate-800 px-2.5 py-1 rounded-lg">Satuan Baku Mutu: µg/m³</span>
+                </div>
+
+                <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    <!-- PM2.5 -->
+                    <div class="glass-panel-light p-3.5 rounded-xl space-y-1.5">
+                        <div class="flex justify-between text-xs text-slate-400 font-semibold">
+                            <span>PM 2.5 (Partikulat)</span>
+                            <span id="pm25Badge" class="text-emerald-400 font-bold">Baik</span>
+                        </div>
+                        <div class="text-lg sm:text-xl font-bold text-white" id="pm25Val">12.4 <span class="text-xs font-normal text-slate-400">µg/m³</span></div>
+                        <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                            <div id="pm25Bar" class="bg-emerald-400 h-full" style="width: 20%;"></div>
+                        </div>
+                        <span class="text-[10px] text-slate-500 block">Baku mutu harian: 55 µg/m³</span>
+                    </div>
+
+                    <!-- PM10 -->
+                    <div class="glass-panel-light p-3.5 rounded-xl space-y-1.5">
+                        <div class="flex justify-between text-xs text-slate-400 font-semibold">
+                            <span>PM 10 (Partikulat)</span>
+                            <span id="pm10Badge" class="text-emerald-400 font-bold">Baik</span>
+                        </div>
+                        <div class="text-lg sm:text-xl font-bold text-white" id="pm10Val">35.1 <span class="text-xs font-normal text-slate-400">µg/m³</span></div>
+                        <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                            <div id="pm10Bar" class="bg-emerald-400 h-full" style="width: 25%;"></div>
+                        </div>
+                        <span class="text-[10px] text-slate-500 block">Baku mutu harian: 75 µg/m³</span>
+                    </div>
+
+                    <!-- CO -->
+                    <div class="glass-panel-light p-3.5 rounded-xl space-y-1.5">
+                        <div class="flex justify-between text-xs text-slate-400 font-semibold">
+                            <span>CO (Karbon Monoksida)</span>
+                            <span id="coBadge" class="text-emerald-400 font-bold">Baik</span>
+                        </div>
+                        <div class="text-lg sm:text-xl font-bold text-white" id="coVal">1200 <span class="text-xs font-normal text-slate-400">µg/m³</span></div>
+                        <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                            <div id="coBar" class="bg-emerald-400 h-full" style="width: 15%;"></div>
+                        </div>
+                        <span class="text-[10px] text-slate-500 block">Baku mutu 8-jam: 4000 µg/m³</span>
+                    </div>
+
+                    <!-- NO2 -->
+                    <div class="glass-panel-light p-3.5 rounded-xl space-y-1.5">
+                        <div class="flex justify-between text-xs text-slate-400 font-semibold">
+                            <span>NO2 (Nitrogen Dioksida)</span>
+                            <span id="no2Badge" class="text-emerald-400 font-bold">Baik</span>
+                        </div>
+                        <div class="text-lg sm:text-xl font-bold text-white" id="no2Val">22.4 <span class="text-xs font-normal text-slate-400">µg/m³</span></div>
+                        <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                            <div id="no2Bar" class="bg-emerald-400 h-full" style="width: 18%;"></div>
+                        </div>
+                        <span class="text-[10px] text-slate-500 block">Baku mutu 24-jam: 65 µg/m³</span>
+                    </div>
+
+                    <!-- O3 -->
+                    <div class="glass-panel-light p-3.5 rounded-xl space-y-1.5">
+                        <div class="flex justify-between text-xs text-slate-400 font-semibold">
+                            <span>O3 (Ozon Muka Tanah)</span>
+                            <span id="o3Badge" class="text-blue-400 font-bold">Sedang</span>
+                        </div>
+                        <div class="text-lg sm:text-xl font-bold text-white" id="o3Val">110.5 <span class="text-xs font-normal text-slate-400">µg/m³</span></div>
+                        <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                            <div id="o3Bar" class="bg-blue-400 h-full" style="width: 45%;"></div>
+                        </div>
+                        <span class="text-[10px] text-slate-500 block">Baku mutu 8-jam: 100 µg/m³</span>
+                    </div>
+
+                    <!-- SO2 -->
+                    <div class="glass-panel-light p-3.5 rounded-xl space-y-1.5">
+                        <div class="flex justify-between text-xs text-slate-400 font-semibold">
+                            <span>SO2 (Sulfur Dioksida)</span>
+                            <span id="so2Badge" class="text-emerald-400 font-bold">Baik</span>
+                        </div>
+                        <div class="text-lg sm:text-xl font-bold text-white" id="so2Val">14.1 <span class="text-xs font-normal text-slate-400">µg/m³</span></div>
+                        <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                            <div id="so2Bar" class="bg-emerald-400 h-full" style="width: 12%;"></div>
+                        </div>
+                        <span class="text-[10px] text-slate-500 block">Baku mutu 24-jam: 75 µg/m³</span>
+                    </div>
+                </div>
+
+                <!-- Recommendation Banner KLHK -->
+                <div id="recommendationBanner" class="p-3.5 rounded-xl bg-slate-900 border border-slate-700 flex items-center space-x-3 text-xs text-slate-300">
+                    <div id="recommendationIcon" class="w-8 h-8 rounded-lg bg-blue-500/20 text-blue-400 flex items-center justify-center shrink-0 text-lg">
+                        <i class="fa-solid fa-lungs"></i>
+                    </div>
+                    <p id="recommendationText">Tingkat kualitas udara yang tidak berpengaruh pada kesehatan manusia ataupun hewan dan tidak berpengaruh pada tumbuhan, bangunan ataupun nilai estetika.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- CHARTS SECTION: Time Trend & Normal Curve Side by Side -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            
+            <!-- Chart 1: ISPU & Pollutant Historical Trend Chart -->
+            <div class="glass-panel rounded-2xl p-4 sm:p-5 space-y-3">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div>
+                        <h3 class="font-bold text-white text-sm sm:text-base flex items-center gap-2">
+                            <i class="fa-solid fa-chart-line text-emerald-400"></i>
+                            <span id="trendChartTitle">Historis ISPU (20 Hari)</span>
+                        </h3>
+                        <p class="text-[11px] text-slate-400">Grafik tren perubahan indeks kualitas udara nasional</p>
+                    </div>
+                    
+                    <div class="flex items-center space-x-1.5 bg-slate-900 p-1 rounded-xl border border-slate-800 self-start sm:self-auto">
+                        <button onclick="switchTrendMetric('ISPU')" id="btnMetricISPU" class="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-emerald-500 text-slate-950 transition">ISPU</button>
+                        <button onclick="switchTrendMetric('PM2.5')" id="btnMetricPM25" class="px-2.5 py-1 text-[11px] font-bold rounded-lg text-slate-400 hover:text-white transition">PM2.5</button>
+                        <button onclick="switchTrendMetric('PM10')" id="btnMetricPM10" class="px-2.5 py-1 text-[11px] font-bold rounded-lg text-slate-400 hover:text-white transition">PM10</button>
+                    </div>
+                </div>
+
+                <div class="w-full h-64 sm:h-72 relative">
+                    <canvas id="trendChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Chart 2: Normal Curve / Gaussian Distribution Chart -->
+            <div class="glass-panel rounded-2xl p-4 sm:p-5 space-y-3">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h3 class="font-bold text-white text-sm sm:text-base flex items-center gap-2">
+                            <i class="fa-solid fa-chart-area text-teal-400"></i>
+                            Kurva Normal Distribusi ISPU
+                        </h3>
+                        <p class="text-[11px] text-slate-400">Sebaran kepadatan probabilitas (PDF Gaussian)</p>
+                    </div>
+                    <span class="text-[10px] bg-teal-500/20 text-teal-300 border border-teal-500/30 px-2 py-0.5 rounded-full font-semibold">Standar Deviasi ISPU</span>
+                </div>
+
+                <div class="w-full h-64 sm:h-72 relative">
+                    <canvas id="gaussianChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Statistical Parameters Summary Table & Gaussian Analytics -->
+        <div class="glass-panel rounded-2xl p-4 sm:p-6 space-y-4">
+            <h3 class="font-bold text-white text-sm sm:text-base flex items-center gap-2">
+                <i class="fa-solid fa-calculator text-emerald-400"></i>
+                Parameter Statistik Distribusi Normal ISPU
+            </h3>
+
+            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                <div class="glass-panel-light p-3 rounded-xl">
+                    <span class="text-[11px] text-slate-400 block">Rata-Rata (Mean µ)</span>
+                    <strong id="statMean" class="text-base sm:text-lg text-emerald-400 font-bold">0.0</strong>
+                    <span class="text-[10px] text-slate-500 block">Skala Indeks ISPU</span>
+                </div>
+
+                <div class="glass-panel-light p-3 rounded-xl">
+                    <span class="text-[11px] text-slate-400 block">Deviasi Standar (σ)</span>
+                    <strong id="statStdDev" class="text-base sm:text-lg text-teal-400 font-bold">0.0</strong>
+                    <span class="text-[10px] text-slate-500 block">Tingkat Fluktuasi</span>
+                </div>
+
+                <div class="glass-panel-light p-3 rounded-xl">
+                    <span class="text-[11px] text-slate-400 block">ISPU Minimum</span>
+                    <strong id="statMin" class="text-base sm:text-lg text-sky-400 font-bold">0</strong>
+                    <span class="text-[10px] text-slate-500 block">Terbersih</span>
+                </div>
+
+                <div class="glass-panel-light p-3 rounded-xl">
+                    <span class="text-[11px] text-slate-400 block">ISPU Maksimum</span>
+                    <strong id="statMax" class="text-base sm:text-lg text-red-400 font-bold">0</strong>
+                    <span class="text-[10px] text-slate-500 block">Terkotor</span>
+                </div>
+
+                <div class="glass-panel-light p-3 rounded-xl">
+                    <span class="text-[11px] text-slate-400 block">Interval 68% (µ ± 1σ)</span>
+                    <strong id="statConf68" class="text-xs sm:text-sm text-yellow-400 font-bold block truncate">0 - 0</strong>
+                    <span class="text-[10px] text-slate-500 block">Rentang Normal</span>
+                </div>
+
+                <div class="glass-panel-light p-3 rounded-xl">
+                    <span class="text-[11px] text-slate-400 block">Z-Score Hari Ini</span>
+                    <strong id="statZScore" class="text-base sm:text-lg text-purple-400 font-bold">0.00</strong>
+                    <span class="text-[10px] text-slate-500 block">Simpangan Baku</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Data Explorer Table Section -->
+        <div class="glass-panel rounded-2xl p-4 sm:p-6 space-y-4">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                    <h3 class="font-bold text-white text-sm sm:text-base flex items-center gap-2">
+                        <i class="fa-solid fa-table text-emerald-400"></i>
+                        Dataset Histori ISPU & Polutan
+                    </h3>
+                    <p class="text-[11px] text-slate-400" id="tableSubtitle">Menampilkan data histori sampel</p>
+                </div>
+
+                <div class="flex items-center space-x-2">
+                    <input type="text" id="tableSearchInput" onkeyup="filterTableRows(this.value)" placeholder="Cari tanggal/kategori..." class="bg-slate-900 border border-slate-700 text-xs text-white rounded-xl px-3 py-2 focus:outline-none focus:ring-1 focus:ring-emerald-500">
+                    <button onclick="exportDataCSV()" class="bg-slate-800 hover:bg-slate-700 text-xs text-emerald-400 font-bold px-3 py-2 rounded-xl border border-slate-700 shrink-0">
+                        <i class="fa-solid fa-download mr-1"></i> Export
+                    </button>
+                </div>
+            </div>
+
+            <div class="overflow-x-auto rounded-xl border border-slate-800">
+                <table class="w-full text-left text-xs">
+                    <thead class="bg-slate-900/90 text-slate-400 border-b border-slate-800 font-semibold uppercase tracking-wider">
+                        <tr>
+                            <th class="p-3">Tanggal</th>
+                            <th class="p-3">Nilai ISPU</th>
+                            <th class="p-3">PM2.5 (µg/m³)</th>
+                            <th class="p-3">PM10 (µg/m³)</th>
+                            <th class="p-3">CO (µg/m³)</th>
+                            <th class="p-3">NO2 (µg/m³)</th>
+                            <th class="p-3">Kategori ISPU</th>
+                            <th class="p-3">Z-Score</th>
+                        </tr>
+                    </thead>
+                    <tbody id="datasetTableBody" class="divide-y divide-slate-800/60 font-medium text-slate-200">
+                        <!-- Populated Dynamic JS -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- App JavaScript Logic -->
+    <script>
+        // Database 38 Provinsi & Kota/Kabupaten di Indonesia
+        const indonesiaProvincesData = {
+            "Aceh": ["Banda Aceh", "Sabang", "Lhokseumawe", "Langsa", "Subulussalam", "Aceh Besar"],
+            "Sumatera Utara": ["Medan", "Pematangsiantar", "Binjai", "Tebing Tinggi", "Tanjungbalai", "Deli Serdang"],
+            "Sumatera Barat": ["Padang", "Bukittinggi", "Payakumbuh", "Solok", "Pariaman", "Padang Panjang"],
+            "Riau": ["Pekanbaru", "Dumai", "Bengkalis", "Kampar", "Siak", "Indragiri Hulu"],
+            "Kepulauan Riau": ["Batam", "Tanjungpinang", "Karimun", "Bintan", "Natuna"],
+            "Jambi": ["Jambi", "Sungai Penuh", "Muaro Jambi", "Bungo", "Tebo"],
+            "Sumatera Selatan": ["Palembang", "Prabumulih", "Lubuklinggau", "Pagar Alam", "Banyuasin"],
+            "Bangka Belitung": ["Pangkalpinang", "Bangka", "Belitung", "Belitung Timur"],
+            "Bengkulu": ["Bengkulu", "Rejang Lebong", "Bengkulu Utara", "Muko Muko"],
+            "Lampung": ["Bandar Lampung", "Metro", "Lampung Selatan", "Lampung Tengah"],
+            "DKI Jakarta": ["Jakarta Pusat", "Jakarta Selatan", "Jakarta Timur", "Jakarta Barat", "Jakarta Utara", "Kepulauan Seribu"],
+            "Jawa Barat": ["Bandung", "Bekasi", "Depok", "Bogor", "Cimahi", "Tasikmalaya", "Cirebon", "Sukabumi", "Garut", "Karawang"],
+            "Banten": ["Tangerang", "Tangerang Selatan", "Serang", "Cilegon", "Lebak", "Pandeglang"],
+            "Jawa Tengah": ["Semarang", "Surakarta (Solo)", "Magelang", "Salatiga", "Pekalongan", "Tegal", "Kudus", "Banyumas"],
+            "DI Yogyakarta": ["Yogyakarta", "Sleman", "Bantul", "Gunungkidul", "Kulon Progo"],
+            "Jawa Timur": ["Surabaya", "Malang", "Kediri", "Madiun", "Batu", "Pasuruan", "Probolinggo", "Blitar", "Sidoarjo", "Gresik", "Banyuwangi"],
+            "Bali": ["Denpasar", "Badung", "Gianyar", "Buleleng", "Tabanan"],
+            "Nusa Tenggara Barat": ["Mataram", "Bima", "Lombok Barat", "Lombok Timur", "Sumbawa"],
+            "Nusa Tenggara Timur": ["Kupang", "Ende", "Sikka", "Manggarai", "Sumba Timur"],
+            "Kalimantan Barat": ["Pontianak", "Singkawang", "Kubu Raya", "Sambas", "Ketapang"],
+            "Kalimantan Tengah": ["Palangkaraya", "Kotawaringin Barat", "Kotawaringin Timur", "Kapuas"],
+            "Kalimantan Selatan": ["Banjarmasin", "Banjarbaru", "Banjar", "Tanah Laut"],
+            "Kalimantan Timur": ["Samarinda", "Balikpapan", "Bontang", "Kutai Kartanegara", "IKN Nusantara"],
+            "Kalimantan Utara": ["Tarakan", "Bulungan", "Nunukan", "Malinau"],
+            "Sulawesi Utara": ["Manado", "Bitung", "Tomohon", "Kotamobagu", "Minahasa"],
+            "Gorontalo": ["Gorontalo", "Bone Bolango", "Gorontalo Utara"],
+            "Sulawesi Tengah": ["Palu", "Donggala", "Banggai", "Poso"],
+            "Sulawesi Barat": ["Mamuju", "Polewali Mandar", "Majene"],
+            "Sulawesi Selatan": ["Makassar", "Palopo", "Parepare", "Gowa", "Bone"],
+            "Sulawesi Tenggara": ["Kendari", "Baubau", "Muna", "Konawe"],
+            "Maluku": ["Ambon", "Tual", "Maluku Tengah", "Seram Bagian Barat"],
+            "Maluku Utara": ["Ternate", "Tidore Kepulauan", "Halmahera Utara"],
+            "Papua": ["Jayapura", "Keerom", "Sarmi"],
+            "Papua Barat": ["Manokwari", "Teluk Bintuni", "Fakfak"],
+            "Papua Selatan": ["Merauke", "Mappi", "Asmat"],
+            "Papua Tengah": ["Nabire", "Mimika (Timika)", "Puncak Jaya"],
+            "Papua Pegunungan": ["Jayawijaya (Wamena)", "Lanny Jaya"],
+            "Papua Barat Daya": ["Sorong", "Raja Ampat"]
+        };
+
+        // State Global Aplikasi
+        let currentProvince = "DKI Jakarta";
+        let currentCity = "Jakarta Pusat";
+        let selectedDayRange = 20;
+        let activeEnvironmentPreset = "normal";
+        let currentTrendMetric = "ISPU";
+        let generatedDataset = [];
+        let trendChartInstance = null;
+        let gaussianChartInstance = null;
+
+        // Inisialisasi Saat Halaman Siap
+        document.addEventListener('DOMContentLoaded', () => {
+            initProvinceSelect();
+            initCitySelect(currentProvince);
+            generateHistoricalData();
+            renderAllChartsAndStats();
+        });
+
+        // Populate Province Dropdown
+        function initProvinceSelect() {
+            const select = document.getElementById('provinceSelect');
+            select.innerHTML = '';
+            Object.keys(indonesiaProvincesData).forEach(prov => {
+                const opt = document.createElement('option');
+                opt.value = prov;
+                opt.textContent = prov;
+                if(prov === currentProvince) opt.selected = true;
+                select.appendChild(opt);
+            });
+        }
+
+        // Populate City Dropdown
+        function initCitySelect(prov) {
+            const select = document.getElementById('citySelect');
+            select.innerHTML = '';
+            const cities = indonesiaProvincesData[prov] || [];
+            cities.forEach(city => {
+                const opt = document.createElement('option');
+                opt.value = city;
+                opt.textContent = city;
+                select.appendChild(opt);
+            });
+            currentCity = cities[0] || "Kota Utama";
+        }
+
+        // Handlers Dropdown Change
+        function onProvinceChange(val) {
+            currentProvince = val;
+            initCitySelect(val);
+            document.getElementById('currentCityLabel').textContent = currentCity.toUpperCase();
+            generateHistoricalData();
+            renderAllChartsAndStats();
+        }
+
+        function onCityChange(val) {
+            currentCity = val;
+            document.getElementById('currentCityLabel').textContent = currentCity.toUpperCase();
+            generateHistoricalData();
+            renderAllChartsAndStats();
+        }
+
+        function onDayRangeChange(val) {
+            if(val === 'custom') {
+                const customVal = prompt("Masukkan jumlah hari histori data (contoh: 45, 120, 365):", "45");
+                selectedDayRange = parseInt(customVal) || 20;
+            } else {
+                selectedDayRange = parseInt(val);
+            }
+            document.getElementById('trendChartTitle').textContent = `Historis ISPU (${selectedDayRange} Hari)`;
+            generateHistoricalData();
+            renderAllChartsAndStats();
+        }
+
+        function applyEnvironmentPreset(preset) {
+            activeEnvironmentPreset = preset;
+            generateHistoricalData();
+            renderAllChartsAndStats();
+        }
+
+        // Search Filter for Cities
+        function filterCitySearch(query) {
+            const container = document.getElementById('searchResults');
+            if(!query || query.trim().length < 2) {
+                container.classList.add('hidden');
+                return;
+            }
+
+            const q = query.toLowerCase();
+            let matches = [];
+
+            Object.keys(indonesiaProvincesData).forEach(prov => {
+                indonesiaProvincesData[prov].forEach(city => {
+                    if(city.toLowerCase().includes(q) || prov.toLowerCase().includes(q)) {
+                        matches.push({ prov, city });
+                    }
+                });
+            });
+
+            if(matches.length === 0) {
+                container.classList.add('hidden');
+                return;
+            }
+
+            container.innerHTML = '';
+            matches.slice(0, 8).forEach(item => {
+                const div = document.createElement('div');
+                div.className = 'p-2.5 hover:bg-slate-800 cursor-pointer border-b border-slate-800/50 text-xs text-slate-200 flex justify-between items-center';
+                div.innerHTML = `<span><strong>${item.city}</strong></span> <span class="text-[10px] text-slate-500">${item.prov}</span>`;
+                div.onclick = () => {
+                    document.getElementById('provinceSelect').value = item.prov;
+                    currentProvince = item.prov;
+                    initCitySelect(item.prov);
+                    document.getElementById('citySelect').value = item.city;
+                    currentCity = item.city;
+                    document.getElementById('currentCityLabel').textContent = currentCity.toUpperCase();
+                    container.classList.add('hidden');
+                    document.getElementById('quickSearchInput').value = '';
+                    generateHistoricalData();
+                    renderAllChartsAndStats();
+                };
+                container.appendChild(div);
+            });
+            container.classList.remove('hidden');
+        }
+
+        /**
+         * Standar Kategori ISPU Indonesia (Permen LHK No. P.14/2020)
+         * 0 - 50: BAIK (Hijau)
+         * 51 - 100: SEDANG (Biru)
+         * 101 - 200: TIDAK SEHAT (Jingga/Oranye)
+         * 201 - 300: SANGAT TIDAK SEHAT (Merah)
+         * > 300: BERBAHAYA (Hitam/Ungu)
+         */
+        function getISPUCategory(ispu) {
+            if (ispu <= 50) {
+                return {
+                    label: "BAIK",
+                    colorClass: "text-emerald-400",
+                    bgBadge: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
+                    bgBar: "bg-emerald-500",
+                    hex: "#22c55e",
+                    desc: "Tingkat kualitas udara yang tidak berpengaruh pada kesehatan manusia ataupun hewan dan tidak berpengaruh pada tumbuhan, bangunan ataupun nilai estetika."
+                };
+            } else if (ispu <= 100) {
+                return {
+                    label: "SEDANG",
+                    colorClass: "text-blue-400",
+                    bgBadge: "bg-blue-500/20 text-blue-400 border-blue-500/30",
+                    bgBar: "bg-blue-500",
+                    hex: "#3b82f6",
+                    desc: "Tingkat kualitas udara yang tidak berpengaruh pada kesehatan manusia ataupun hewan tetapi berpengaruh pada tumbuhan yang sensitif, dan nilai estetika."
+                };
+            } else if (ispu <= 200) {
+                return {
+                    label: "TIDAK SEHAT",
+                    colorClass: "text-orange-400",
+                    bgBadge: "bg-orange-500/20 text-orange-400 border-orange-500/30",
+                    bgBar: "bg-orange-500",
+                    hex: "#f97316",
+                    desc: "Tingkat kualitas udara yang bersifat merugikan pada manusia ataupun kelompok hewan yang sensitif atau bisa menimbulkan kerusakan pada tumbuhan ataupun nilai estetika."
+                };
+            } else if (ispu <= 300) {
+                return {
+                    label: "SANGAT TIDAK SEHAT",
+                    colorClass: "text-red-400",
+                    bgBadge: "bg-red-500/20 text-red-400 border-red-500/30",
+                    bgBar: "bg-red-500",
+                    hex: "#ef4444",
+                    desc: "Tingkat kualitas udara yang dapat meningkatkan risiko kesehatan pada sejumlah segmen populasi yang terpapar."
+                };
+            } else {
+                return {
+                    label: "BERBAHAYA",
+                    colorClass: "text-purple-400",
+                    bgBadge: "bg-purple-500/20 text-purple-400 border-purple-500/30",
+                    bgBar: "bg-purple-500",
+                    hex: "#a855f7",
+                    desc: "Tingkat kualitas udara secara umum dapat merugikan kesehatan yang serius pada populasi dan membutuhkan penanganan cepat."
+                };
+            }
+        }
+
+        // Generator Data Historis Udara Berdasarkan Standar ISPU Indonesia
+        function generateHistoricalData() {
+            generatedDataset = [];
+            const today = new Date();
+
+            let baseISPU = 65; // Nilai baseline sedang untuk perkotaan Indonesia
+            if(activeEnvironmentPreset === 'clean') baseISPU = 28;
+            if(activeEnvironmentPreset === 'urban') baseISPU = 88;
+            if(activeEnvironmentPreset === 'industrial') baseISPU = 145;
+            if(activeEnvironmentPreset === 'haze') baseISPU = 260;
+
+            for(let i = selectedDayRange; i >= 1; i--) {
+                const date = new Date(today);
+                date.setDate(date.getDate() - i);
+                const dateStr = date.toLocaleDateString('id-ID', { day: '2-digit', month: 'short' });
+
+                // Variasi fluktuasi statistik
+                const randomOffset = Math.sin(i * 1.5) * 30 + (Math.random() * 20 - 10);
+                let ispu = Math.max(10, Math.round(baseISPU + randomOffset));
+                
+                // Konversi perkiraan konsentrasi polutan sesuai rentang ISPU KLHK (µg/m³)
+                let pm25 = Math.round((ispu * 0.55) * 10) / 10;
+                let pm10 = Math.round((ispu * 0.75) * 10) / 10;
+                let co = Math.round(500 + ispu * 25);
+                let no2 = Math.round((10 + ispu * 0.35) * 10) / 10;
+
+                generatedDataset.push({
+                    dateStr,
+                    ispu,
+                    pm25,
+                    pm10,
+                    co,
+                    no2,
+                    category: getISPUCategory(ispu)
+                });
+            }
+
+            // Update real-time metric cards dengan data terkini
+            const latest = generatedDataset[generatedDataset.length - 1];
+            updateCurrentMetricWidgets(latest);
+        }
+
+        // Update Dashboard Top Cards
+        function updateCurrentMetricWidgets(data) {
+            document.getElementById('aqiValueDisplay').textContent = data.ispu;
+            document.getElementById('aqiStatusText').textContent = data.category.label;
+            document.getElementById('aqiStatusText').className = `text-xl sm:text-2xl font-black mt-1 ${data.category.colorClass}`;
+            
+            const badge = document.getElementById('aqiBadge');
+            badge.textContent = `ISPU ${data.ispu}`;
+            badge.className = `px-3 py-1 text-xs font-extrabold rounded-lg border ${data.category.bgBadge}`;
+
+            document.getElementById('statusDot').style.backgroundColor = data.category.hex;
+
+            document.getElementById('aqiPercentageText').textContent = `Kategori ISPU KLHK: ${data.category.label}`;
+            
+            const bar = document.getElementById('aqiProgressBar');
+            bar.style.width = `${Math.min(100, (data.ispu / 300) * 100)}%`;
+            bar.className = `h-full rounded-full transition-all duration-700 ${data.category.bgBar}`;
+
+            document.getElementById('pm25Val').innerHTML = `${data.pm25} <span class="text-xs font-normal text-slate-400">µg/m³</span>`;
+            document.getElementById('pm10Val').innerHTML = `${data.pm10} <span class="text-xs font-normal text-slate-400">µg/m³</span>`;
+            document.getElementById('coVal').innerHTML = `${data.co} <span class="text-xs font-normal text-slate-400">µg/m³</span>`;
+            document.getElementById('no2Val').innerHTML = `${data.no2} <span class="text-xs font-normal text-slate-400">µg/m³</span>`;
+
+            // Recommendation Text Update
+            document.getElementById('recommendationText').textContent = data.category.desc;
+        }
+
+        // Master Function Render Charts & Stats
+        function renderAllChartsAndStats() {
+            renderTrendChart();
+            renderGaussianDistributionChart();
+            populateDataTable();
+        }
+
+        // Switch Metric on Trend Chart
+        function switchTrendMetric(metric) {
+            currentTrendMetric = metric;
+            document.getElementById('btnMetricISPU').className = metric === 'ISPU' ? "px-2.5 py-1 text-[11px] font-bold rounded-lg bg-emerald-500 text-slate-950 transition" : "px-2.5 py-1 text-[11px] font-bold rounded-lg text-slate-400 hover:text-white transition";
+            document.getElementById('btnMetricPM25').className = metric === 'PM2.5' ? "px-2.5 py-1 text-[11px] font-bold rounded-lg bg-emerald-500 text-slate-950 transition" : "px-2.5 py-1 text-[11px] font-bold rounded-lg text-slate-400 hover:text-white transition";
+            document.getElementById('btnMetricPM10').className = metric === 'PM10' ? "px-2.5 py-1 text-[11px] font-bold rounded-lg bg-emerald-500 text-slate-950 transition" : "px-2.5 py-1 text-[11px] font-bold rounded-lg text-slate-400 hover:text-white transition";
+            renderTrendChart();
+        }
+
+        // Render Chart 1: Historical Trend
+        function renderTrendChart() {
+            const ctx = document.getElementById('trendChart').getContext('2d');
+            if(trendChartInstance) trendChartInstance.destroy();
+
+            const labels = generatedDataset.map(d => d.dateStr);
+            let values = [];
+            if(currentTrendMetric === 'ISPU') values = generatedDataset.map(d => d.ispu);
+            else if(currentTrendMetric === 'PM2.5') values = generatedDataset.map(d => d.pm25);
+            else values = generatedDataset.map(d => d.pm10);
+
+            const gradient = ctx.createLinearGradient(0, 0, 0, 300);
+            gradient.addColorStop(0, 'rgba(16, 185, 129, 0.4)');
+            gradient.addColorStop(1, 'rgba(16, 185, 129, 0.0)');
+
+            trendChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: `${currentTrendMetric} (${currentCity})`,
+                        data: values,
+                        borderColor: '#10b981',
+                        borderWidth: 2,
+                        backgroundColor: gradient,
+                        fill: true,
+                        tension: 0.35,
+                        pointRadius: selectedDayRange > 60 ? 0 : 3,
+                        pointHoverRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        x: { grid: { color: 'rgba(255, 255, 255, 0.05)' }, ticks: { color: '#94a3b8', font: { size: 10 } } },
+                        y: { grid: { color: 'rgba(255, 255, 255, 0.05)' }, ticks: { color: '#94a3b8', font: { size: 10 } } }
+                    }
+                }
+            });
+        }
+
+        // Render Chart 2: Gaussian Bell Curve Distribution
+        function renderGaussianDistributionChart() {
+            const ctx = document.getElementById('gaussianChart').getContext('2d');
+            if(gaussianChartInstance) gaussianChartInstance.destroy();
+
+            const ispuValues = generatedDataset.map(d => d.ispu);
+            const n = ispuValues.length;
+            const mean = ispuValues.reduce((a, b) => a + b, 0) / n;
+            const variance = ispuValues.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / n;
+            const stdDev = Math.sqrt(variance) || 1;
+
+            const minVal = Math.max(0, Math.floor(mean - 3.5 * stdDev));
+            const maxVal = Math.ceil(mean + 3.5 * stdDev);
+            const step = Math.max(1, Math.round((maxVal - minVal) / 50));
+
+            let curveLabels = [];
+            let curveData = [];
+
+            for(let x = minVal; x <= maxVal; x += step) {
+                curveLabels.push(x);
+                // Rumus Gaussian PDF: f(x) = (1 / (σ√(2π))) * e^(-0.5 * ((x - μ) / σ)²)
+                const pdf = (1 / (stdDev * Math.sqrt(2 * Math.PI))) * Math.exp(-0.5 * Math.pow((x - mean) / stdDev, 2));
+                curveData.push(pdf);
+            }
+
+            // Update Tabel Ringkasan Statistik
+            document.getElementById('statMean').textContent = mean.toFixed(1);
+            document.getElementById('statStdDev').textContent = stdDev.toFixed(1);
+            document.getElementById('statMin').textContent = Math.min(...ispuValues);
+            document.getElementById('statMax').textContent = Math.max(...ispuValues);
+            document.getElementById('statConf68').textContent = `${Math.max(0, Math.round(mean - stdDev))} - ${Math.round(mean + stdDev)}`;
+            
+            const currentISPU = generatedDataset[generatedDataset.length - 1].ispu;
+            const zScore = ((currentISPU - mean) / stdDev).toFixed(2);
+            document.getElementById('statZScore').textContent = zScore;
+
+            const gradient = ctx.createLinearGradient(0, 0, 0, 300);
+            gradient.addColorStop(0, 'rgba(20, 184, 166, 0.4)');
+            gradient.addColorStop(1, 'rgba(20, 184, 166, 0.0)');
+
+            gaussianChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: curveLabels,
+                    datasets: [{
+                        label: 'Probabilitas Kepadatan Normal f(x)',
+                        data: curveData,
+                        borderColor: '#14b8a6',
+                        borderWidth: 2,
+                        backgroundColor: gradient,
+                        fill: true,
+                        tension: 0.4,
+                        pointRadius: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        x: { 
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' }, 
+                            ticks: { color: '#94a3b8', font: { size: 10 } },
+                            title: { display: true, text: 'Nilai ISPU (x)', color: '#64748b', font: { size: 10 } }
+                        },
+                        y: { 
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' }, 
+                            ticks: { display: false }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Populate Table Data Explorer
+        function populateDataTable() {
+            const tbody = document.getElementById('datasetTableBody');
+            tbody.innerHTML = '';
+
+            const ispuValues = generatedDataset.map(d => d.ispu);
+            const mean = ispuValues.reduce((a, b) => a + b, 0) / ispuValues.length;
+            const variance = ispuValues.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / ispuValues.length;
+            const stdDev = Math.sqrt(variance) || 1;
+
+            document.getElementById('tableSubtitle').textContent = `Menampilkan ${generatedDataset.length} hari histori data ISPU untuk ${currentCity}, ${currentProvince}`;
+
+            generatedDataset.slice().reverse().forEach(row => {
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-slate-800/40 transition border-b border-slate-800/40";
+                
+                const z = ((row.ispu - mean) / stdDev).toFixed(2);
+
+                tr.innerHTML = `
+                    <td class="p-3 font-semibold text-white">${row.dateStr}</td>
+                    <td class="p-3 font-extrabold ${row.category.colorClass}">${row.ispu}</td>
+                    <td class="p-3">${row.pm25}</td>
+                    <td class="p-3">${row.pm10}</td>
+                    <td class="p-3">${row.co}</td>
+                    <td class="p-3">${row.no2}</td>
+                    <td class="p-3">
+                        <span class="px-2 py-0.5 text-[10px] font-bold rounded-md border ${row.category.bgBadge}">
+                            ${row.category.label}
+                        </span>
+                    </td>
+                    <td class="p-3 text-slate-400 font-mono">${z}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // Table Search Filter
+        function filterTableRows(query) {
+            const rows = document.querySelectorAll('#datasetTableBody tr');
+            const q = query.toLowerCase();
+            rows.forEach(row => {
+                const text = row.textContent.toLowerCase();
+                row.style.display = text.includes(q) ? '' : 'none';
+            });
+        }
+
+        // Scan Simulation Trigger
+        function triggerScan() {
+            const overlay = document.getElementById('scanOverlay');
+            const bar = document.getElementById('scanProgressBar');
+            const locText = document.getElementById('scanLocationText');
+            
+            locText.textContent = `Pindai stasiun ISPU di ${currentCity}, ${currentProvince}...`;
+            overlay.classList.remove('hidden');
+            bar.style.width = '0%';
+
+            let progress = 0;
+            const interval = setInterval(() => {
+                progress += 20;
+                bar.style.width = `${progress}%`;
+                if(progress >= 100) {
+                    clearInterval(interval);
+                    setTimeout(() => {
+                        overlay.classList.add('hidden');
+                        generateHistoricalData();
+                        renderAllChartsAndStats();
+                    }, 300);
+                }
+            }, 200);
+        }
+
+        // GPS Auto Detect Simulation
+        function detectGPSLocation() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => {
+                        currentProvince = "Jawa Timur";
+                        currentCity = "Malang";
+                        initProvinceSelect();
+                        document.getElementById('provinceSelect').value = currentProvince;
+                        initCitySelect(currentProvince);
+                        document.getElementById('citySelect').value = currentCity;
+                        document.getElementById('currentCityLabel').textContent = currentCity.toUpperCase();
+                        triggerScan();
+                    },
+                    (err) => {
+                        triggerScan();
+                    }
+                );
+            } else {
+                triggerScan();
+            }
+        }
+
+        // Export Data CSV
+        function exportDataCSV() {
+            let csv = "Tanggal,ISPU,PM2.5(ug/m3),PM10(ug/m3),CO(ug/m3),NO2(ug/m3),Kategori_ISPU\n";
+            generatedDataset.forEach(d => {
+                csv += `"${d.dateStr}",${d.ispu},${d.pm25},${d.pm10},${d.co},${d.no2},"${d.category.label}"\n`;
+            });
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `AeroClean_ISPU_${currentCity}_${selectedDayRange}Hari.csv`;
+            a.click();
+        }
+
+        // Export Data JSON
+        function exportDataJSON() {
+            const jsonStr = JSON.stringify(generatedDataset, null, 2);
+            const blob = new Blob([jsonStr], { type: 'application/json' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `AeroClean_ISPU_${currentCity}_${selectedDayRange}Hari.json`;
+            a.click();
+        }
+    </script>
+</body>
+</html>
